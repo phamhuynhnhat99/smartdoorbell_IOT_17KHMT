@@ -133,6 +133,10 @@ void setup() {
   Serial.println(WiFi.localIP());
   
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.reconnectWiFi(true);
+  Firebase.setMaxRetry(firebaseData, 10);
+  Firebase.setMaxErrorQueue(firebaseData, 30); 
+  Firebase.enableClassicRequest(firebaseData, true);
   
   post_img();
   
@@ -184,11 +188,6 @@ void loop() {
 }
 
 void post_img() {
-    Firebase.reconnectWiFi(true);
-    Firebase.setMaxRetry(firebaseData, 10);
-    Firebase.setMaxErrorQueue(firebaseData, 30); 
-    Firebase.enableClassicRequest(firebaseData, true);
-
     FirebaseJson json;
     json.setJsonData("{\"photo\":\"" + Photo2Base64() + "\"}");
     String photoPath = "/esp32cam";
