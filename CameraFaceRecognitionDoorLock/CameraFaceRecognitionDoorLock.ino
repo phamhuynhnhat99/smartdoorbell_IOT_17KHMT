@@ -2,7 +2,8 @@
 //ESP Camera Artificial Intelligence Face Detection Automatic Door Lock
 #include "esp_camera.h"
 #include <WiFi.h>
-
+#include <FirebaseESP32.h>
+#include "Base64.h"
 
 //
 // WARNING!!! Make sure that you have either selected ESP32 Wrover Module,
@@ -15,6 +16,10 @@
 //#define CAMERA_MODEL_M5STACK_PSRAM
 //#define CAMERA_MODEL_M5STACK_WIDE
 #define CAMERA_MODEL_AI_THINKER
+
+#define FIREBASE_HOST "iot-project-288607.firebaseio.com"
+#define FIREBASE_AUTH "q6lhvIv21AV6Ve5ulxXzyrVt7REtroDdCA7qMAtJ"
+FirebaseData firebaseData;
 
 #define Red 13
 #define Green 12
@@ -117,19 +122,39 @@ void setup() {
 #endif
 
   WiFi.begin(ssid, password);
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println("");
   Serial.println("WiFi connected");
-
   startCameraServer();
-
   Serial.print("Camera Ready! Use 'http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("' to connect");
+  Serial.println(WiFi.localIP());
+
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.reconnectWiFi(true);
+  Firebase.setMaxRetry(firebaseData, 3);
+  Firebase.setMaxErrorQueue(firebaseData, 30); 
+  Firebase.enableClassicRequest(firebaseData, true);
+
+  String jsonData = Photo2Base64();
+  String photoPath = "/esp-32";
+  FirebaseJson fbjs;
+  fbjs.add("photo", jsonData);
+  
+  String tmp;
+  fbjs.toString(tmp, true);
+  Serial.print(tmp);
+  
+  if (Firebase.pushJSON(firebaseData, photoPath, fbjs)) {
+    Serial.println(firebaseData.dataPath());
+    Serial.println(firebaseData.pushName());
+    Serial.println(firebaseData.dataPath() + "/"+ firebaseData.pushName());
+  } else {
+    Serial.println(firebaseData.errorReason());
+  }
+  
 }
 
 volatile int angle = 0;
@@ -171,4 +196,60 @@ void loop() {
             digitalWrite(Red,HIGH);
         }   
     }
+}
+
+String Photo2Base64() {
+    camera_fb_t * fb = NULL;
+    fb = esp_camera_fb_get();  
+    if(!fb) {
+      Serial.println("Camera capture failed");
+      return "";
+    }
+  
+    String imageFile = "data:image/jpeg;base64,";
+    char *input = (char *)fb->buf;
+    char output[base64_enc_len(3)];
+    for (int i=0;i<fb->len;i++) {
+      base64_encode(output, (input++), 3);
+      if (i%3==0) imageFile += urlencode(String(output));
+    }
+
+    esp_camera_fb_return(fb);
+    
+    return imageFile;
+}
+
+//https://github.com/zenmanenergy/ESP8266-Arduino-Examples/
+String urlencode(String str)
+{
+    String encodedString="";
+    char c;
+    char code0;
+    char code1;
+    char code2;
+    for (int i =0; i < str.length(); i++){
+      c=str.charAt(i);
+      if (c == ' '){
+        encodedString+= '+';
+      } else if (isalnum(c)){
+        encodedString+=c;
+      } else{
+        code1=(c & 0xf)+'0';
+        if ((c & 0xf) >9){
+            code1=(c & 0xf) - 10 + 'A';
+        }
+        c=(c>>4)&0xf;
+        code0=c+'0';
+        if (c > 9){
+            code0=c - 10 + 'A';
+        }
+        code2='\0';
+        encodedString+='%';
+        encodedString+=code0;
+        encodedString+=code1;
+        //encodedString+=code2;
+      }
+      yield();
+    }
+    return encodedString;
 }
