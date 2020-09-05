@@ -2,9 +2,7 @@
 //ESP Camera Artificial Intelligence Face Detection Automatic Door Lock
 #include "esp_camera.h"
 #include <WiFi.h>
-#include <Servo_ESP32.h>
-#include "camera_pins.h"
-#include "ESP32_ISR_Servo.h"
+
 
 //
 // WARNING!!! Make sure that you have either selected ESP32 Wrover Module,
@@ -23,6 +21,10 @@
 #define servoPin 14
 #define MIN_MICROS      800  //544
 #define MAX_MICROS      2450
+
+#include <Servo_ESP32.h>
+#include "camera_pins.h"
+#include "ESP32_ISR_Servo.h"
 
 const char* ssid = "Helicoland";
 const char* password = "chichxongchay";
