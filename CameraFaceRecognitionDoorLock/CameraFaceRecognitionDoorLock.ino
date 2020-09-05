@@ -41,7 +41,7 @@ int my_servo  = -1;
 
 void startCameraServer();
 
-boolean matchFace = false;
+int matchFace = 0;
 boolean open_door = false;
 long prevMillis=0;
 int interval = 5000;
@@ -131,29 +131,10 @@ void setup() {
   startCameraServer();
   Serial.print("Camera Ready! Use 'http://");
   Serial.println(WiFi.localIP());
-
+  
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-  Firebase.reconnectWiFi(true);
-  Firebase.setMaxRetry(firebaseData, 3);
-  Firebase.setMaxErrorQueue(firebaseData, 30); 
-  Firebase.enableClassicRequest(firebaseData, true);
-
-  String jsonData = Photo2Base64();
-  String photoPath = "/esp-32";
-  FirebaseJson fbjs;
-  fbjs.add("photo", jsonData);
   
-  String tmp;
-  fbjs.toString(tmp, true);
-  Serial.print(tmp);
-  
-  if (Firebase.pushJSON(firebaseData, photoPath, fbjs)) {
-    Serial.println(firebaseData.dataPath());
-    Serial.println(firebaseData.pushName());
-    Serial.println(firebaseData.dataPath() + "/"+ firebaseData.pushName());
-  } else {
-    Serial.println(firebaseData.errorReason());
-  }
+  post_img();
   
 }
 
@@ -165,36 +146,59 @@ int angleMax = 45;
 void loop() {
     int position;
     if (processing == 1) {
-        for (position = 0; position <= 180; position++) 
-        {
+        for (position = 0; position <= 180; position++) {
             ESP32_ISR_Servos.setPosition(my_servo, position);
         }
         processing = 0;
     }
     else if (processing == 2) {
-        for (position = 180; position >= 0; position--) 
-        {
+        for (position = 180; position >= 0; position--) {
             ESP32_ISR_Servos.setPosition(my_servo, position);
         }
         processing = 0;
     }
     else {
-        if(matchFace==true && open_door==false)
+        if(matchFace==1 && open_door==false)
         {
             processing = 1;
             open_door=true;
             digitalWrite(Green,HIGH);
             digitalWrite(Red,LOW);
             prevMillis=millis();
+            matchFace=0;
+            post_img();
+        }
+        else if (matchFace==2) {
+            matchFace=0;
+            Serial.println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
         }
         if (open_door == true && millis()-prevMillis > interval)
         {
+            matchFace=0;
             processing = 2;
             open_door=false;
-            matchFace=false;
             digitalWrite(Green,LOW);
             digitalWrite(Red,HIGH);
         }   
+    }
+}
+
+void post_img() {
+    Firebase.reconnectWiFi(true);
+    Firebase.setMaxRetry(firebaseData, 10);
+    Firebase.setMaxErrorQueue(firebaseData, 30); 
+    Firebase.enableClassicRequest(firebaseData, true);
+
+    FirebaseJson json;
+    json.setJsonData("{\"photo\":\"" + Photo2Base64() + "\"}");
+    String photoPath = "/esp32cam";
+          
+    if (Firebase.pushJSON(firebaseData, photoPath, json)) {
+        Serial.println(firebaseData.dataPath());
+        Serial.println(firebaseData.pushName());
+        Serial.println(firebaseData.dataPath() + "/"+ firebaseData.pushName());
+    } else {
+        Serial.println(firebaseData.errorReason());
     }
 }
 
@@ -219,7 +223,6 @@ String Photo2Base64() {
     return imageFile;
 }
 
-//https://github.com/zenmanenergy/ESP8266-Arduino-Examples/
 String urlencode(String str)
 {
     String encodedString="";
