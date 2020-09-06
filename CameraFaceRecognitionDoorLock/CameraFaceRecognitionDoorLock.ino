@@ -24,6 +24,7 @@ FirebaseData firebaseData;
 #define Red 13
 #define Green 12
 #define servoPin 14
+#define buttonPin 15
 #define MIN_MICROS      800  //544
 #define MAX_MICROS      2450
 
@@ -31,8 +32,8 @@ FirebaseData firebaseData;
 #include "camera_pins.h"
 #include "ESP32_ISR_Servo.h"
 
-const char* ssid = "Helicoland";
-const char* password = "chichxongchay";
+const char* ssid = "Aichan";
+const char* password = "20121998";
 
 #define TIMER_INTERRUPT_DEBUG       1
 #define ISR_SERVO_DEBUG             1
@@ -42,12 +43,44 @@ int my_servo  = -1;
 void startCameraServer();
 
 int matchFace = 0;
-boolean open_door = false;
 long prevMillis=0;
 int interval = 5000;
 
+static int taskCore = 1;
+void coreTask( void * pvParameters ){
+    FirebaseJson json;
+    json.setJsonData("{\"photo\":\"" + Photo2Base64() + "\"}");
+    String photoPath = "/esp32cam";
+          
+    if (Firebase.pushJSON(firebaseData, photoPath, json)) {
+        Serial.println("Post successfully...<3");
+    } else {
+        Serial.println(firebaseData.errorReason());
+    }
+}
+
+void connect() {
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+       Serial.print(".");
+    }
+    Serial.println("");
+    Serial.println("WiFi connected");
+    startCameraServer();
+    Serial.print("Camera Ready! Use 'http://");
+    Serial.println(WiFi.localIP());
+    
+    Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+    Firebase.reconnectWiFi(true);
+    Firebase.setMaxRetry(firebaseData, 10);
+    Firebase.setMaxErrorQueue(firebaseData, 30); 
+    Firebase.enableClassicRequest(firebaseData, true);
+}
+
 void setup() {
-  pinMode(servoPin,OUTPUT);
+  pinMode(servoPin, OUTPUT);
+  pinMode(buttonPin, INPUT);
   
   //Select ESP32 timer USE_ESP32_TIMER_NO
   ESP32_ISR_Servos.useTimer(USE_ESP32_TIMER_NO);
@@ -121,84 +154,103 @@ void setup() {
   s->set_hmirror(s, 1);
 #endif
 
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("WiFi connected");
-  startCameraServer();
-  Serial.print("Camera Ready! Use 'http://");
-  Serial.println(WiFi.localIP());
-  
-  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-  Firebase.reconnectWiFi(true);
-  Firebase.setMaxRetry(firebaseData, 10);
-  Firebase.setMaxErrorQueue(firebaseData, 30); 
-  Firebase.enableClassicRequest(firebaseData, true);
-  
-  post_img();
-  
+  connect();
+ 
 }
 
 volatile int angle = 0;
 volatile int processing = 0;
-volatile int angleStep = 5;
+volatile bool open_door = false;
+volatile int lastState = HIGH;
+int angleStep = 5;
 int angleMin = 0;
-int angleMax = 45;
+int angleMax = 180;
+
 void loop() {
+    if(WiFi.status() != WL_CONNECTED){
+        connect();
+        return;
+    }
+    
     int position;
     if (processing == 1) {
-        for (position = 0; position <= 180; position++) {
-            ESP32_ISR_Servos.setPosition(my_servo, position);
+        if (angle == angleMin) {
+            for (position = angleMin; position <= angleMax; position+=angleStep) {
+                ESP32_ISR_Servos.setPosition(my_servo, position);
+            }
+            angle = angleMax;
         }
         processing = 0;
     }
     else if (processing == 2) {
-        for (position = 180; position >= 0; position--) {
-            ESP32_ISR_Servos.setPosition(my_servo, position);
+        if (angle == angleMax) {
+            for (position = angleMax; position >= angleMin; position-=angleStep) {
+                ESP32_ISR_Servos.setPosition(my_servo, position);
+            }
+            angle = angleMin;
         }
         processing = 0;
     }
     else {
-        if(matchFace==1 && open_door==false)
-        {
-            processing = 1;
-            open_door=true;
-            digitalWrite(Green,HIGH);
-            digitalWrite(Red,LOW);
-            prevMillis=millis();
-            matchFace=0;
-            post_img();
+        int buttonState = digitalRead(buttonPin);
+        if (buttonState != lastState) {
+            if (buttonState == LOW) {
+                if (open_door == false) {
+                    matchFace=0;
+                    processing = 1;
+                    open_door=true;
+                    digitalWrite(Green,HIGH);
+                    digitalWrite(Red,LOW);
+                    prevMillis=millis();
+                }
+                else {
+                    matchFace=0;
+                    processing = 2;
+                    open_door=false;
+                    digitalWrite(Green,LOW);
+                    digitalWrite(Red,HIGH);
+                }
+            }
+            lastState = buttonState;
         }
-        else if (matchFace==2) {
-            matchFace=0;
-            Serial.println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-        }
-        if (open_door == true && millis()-prevMillis > interval)
-        {
-            matchFace=0;
-            processing = 2;
-            open_door=false;
-            digitalWrite(Green,LOW);
-            digitalWrite(Red,HIGH);
+        else {
+            if(matchFace==1 && open_door==false) {
+                matchFace=0;
+                processing = 1;
+                open_door=true;
+                digitalWrite(Green,HIGH);
+                digitalWrite(Red,LOW);
+                prevMillis=millis();
+                Serial.println("++++++++++++++++++++++++++++++++++++++");
+            }
+            else if (matchFace==2) {
+                matchFace=0;
+                processing = 2;
+                open_door=false;
+                digitalWrite(Green,LOW);
+                digitalWrite(Red,HIGH);
+                Serial.println("--------------------------------------");
+            }
+            if (open_door == true && millis()-prevMillis > interval) {
+                matchFace=0;
+                processing = 2;
+                open_door=false;
+                digitalWrite(Green,LOW);
+                digitalWrite(Red,HIGH);
+            }
         }   
     }
 }
 
 void post_img() {
-    FirebaseJson json;
-    json.setJsonData("{\"photo\":\"" + Photo2Base64() + "\"}");
-    String photoPath = "/esp32cam";
-          
-    if (Firebase.pushJSON(firebaseData, photoPath, json)) {
-        Serial.println(firebaseData.dataPath());
-        Serial.println(firebaseData.pushName());
-        Serial.println(firebaseData.dataPath() + "/"+ firebaseData.pushName());
-    } else {
-        Serial.println(firebaseData.errorReason());
-    }
+    xTaskCreatePinnedToCore(
+                    coreTask,   /* Function to implement the task */
+                    "coreTask", /* Name of the task */
+                    100000,      /* Stack size in words */
+                    NULL,       /* Task input parameter */
+                    0,          /* Priority of the task */
+                    NULL,       /* Task handle. */
+                    taskCore);  /* Core where the task should run */
 }
 
 String Photo2Base64() {
