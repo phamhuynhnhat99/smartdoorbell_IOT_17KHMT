@@ -2,6 +2,7 @@
 //ESP Camera Artificial Intelligence Face Detection Automatic Door Lock
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <PubSubClient.h>
 #include <FirebaseESP32.h>
 #include "Base64.h"
 
@@ -35,6 +36,12 @@ FirebaseData firebaseData;
 const char* ssid = "Aichan";
 const char* password = "20121998";
 
+const char* mqtt_server = "192.168.43.10";
+const uint16_t mqtt_port = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
 #define TIMER_INTERRUPT_DEBUG       1
 #define ISR_SERVO_DEBUG             1
 
@@ -47,17 +54,6 @@ long prevMillis=0;
 int interval = 5000;
 
 static int taskCore = 1;
-void coreTask( void * pvParameters ){
-    FirebaseJson json;
-    json.setJsonData("{\"photo\":\"" + Photo2Base64() + "\"}");
-    String photoPath = "/esp32cam";
-          
-    if (Firebase.pushJSON(firebaseData, photoPath, json)) {
-        Serial.println("Post successfully...<3");
-    } else {
-        Serial.println(firebaseData.errorReason());
-    }
-}
 
 void connect() {
     WiFi.begin(ssid, password);
@@ -155,7 +151,25 @@ void setup() {
 #endif
 
   connect();
+
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
  
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 2 seconds");
+      delay(2000);
+    }
+  }
 }
 
 volatile int angle = 0;
@@ -170,6 +184,9 @@ void loop() {
     if(WiFi.status() != WL_CONNECTED){
         connect();
         return;
+    }
+    if (!client.connected()) {
+        reconnect();
     }
     
     int position;
@@ -230,6 +247,10 @@ void loop() {
                 digitalWrite(Green,LOW);
                 digitalWrite(Red,HIGH);
                 Serial.println("--------------------------------------");
+                char payl[2];
+                snprintf (payl, 10, "%d", 2);
+                delay(1000);
+                client.publish("send_email", payl);
             }
             if (open_door == true && millis()-prevMillis > interval) {
                 matchFace=0;
@@ -251,6 +272,18 @@ void post_img() {
                     0,          /* Priority of the task */
                     NULL,       /* Task handle. */
                     taskCore);  /* Core where the task should run */
+}
+
+void coreTask( void * pvParameters ){
+    FirebaseJson json;
+    json.setJsonData("{\"photo\":\"" + Photo2Base64() + "\"}");
+    String photoPath = "/esp32cam";
+          
+    if (Firebase.pushJSON(firebaseData, photoPath, json)) {
+        Serial.println("Post successfully...<3");
+    } else {
+        Serial.println(firebaseData.errorReason());
+    }
 }
 
 String Photo2Base64() {
@@ -306,4 +339,15 @@ String urlencode(String str)
       yield();
     }
     return encodedString;
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
 }
